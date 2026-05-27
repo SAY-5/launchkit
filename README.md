@@ -81,10 +81,17 @@ rather than assumed by convention.
 ## Billing
 
 Checkout creates a Stripe subscription session in test mode. The webhook
-handler verifies the Stripe signature, records each event id in
-`processed_events` under a unique constraint, and applies the subscription
-state implied by the event type. A replayed event is detected by its id and is
-not applied twice, so duplicate deliveries do not double-apply a transition.
+handler verifies the Stripe signature and applies the subscription state
+implied by the event type: `checkout.session.completed` activates,
+`invoice.payment_failed` moves to past_due, `customer.subscription.updated`
+carries its own status, and `customer.subscription.deleted` cancels.
+
+Idempotency has two layers. Each event id is checked against `processed_events`
+before any mutation, and the column carries a unique constraint so a concurrent
+duplicate that slips past the check fails on insert and is reported as a
+duplicate. A replayed delivery therefore never double-applies a transition; a
+test replays the same event twice and asserts a single state change and a single
+recorded event id.
 
 ## Benchmark
 

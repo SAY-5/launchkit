@@ -12,6 +12,7 @@ import json
 
 import stripe
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -74,8 +75,12 @@ def _resolve_status(event: dict) -> str | None:
 def process_event(db: Session, event: dict) -> bool:
     """Apply a webhook event. Returns True if newly applied, False if duplicate.
 
-    Idempotency: the event id is recorded in ``processed_events`` with a unique
-    constraint. A replayed event short-circuits before any state mutation.
+    Idempotency has two layers. The event id is checked against
+    ``processed_events`` up front, and the column carries a unique constraint so
+    that a concurrent duplicate that slips past the check fails on insert; that
+    ``IntegrityError`` is caught and reported as a duplicate. Either way the
+    subscription state is mutated at most once per distinct event id, so a
+    replayed delivery never double-applies a transition.
     """
 
     event_id = event.get("id")
@@ -100,5 +105,10 @@ def process_event(db: Session, event: dict) -> bool:
             if customer is not None and tenant.stripe_customer_id is None:
                 tenant.stripe_customer_id = customer
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # A concurrent delivery recorded this event id first; treat as duplicate.
+        db.rollback()
+        return False
     return True
