@@ -21,6 +21,19 @@ jobs:
       - run: mypy app
       - run: pytest --cov=app --cov-fail-under=90
 
+  bench-regress:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev]"
+      - run: python -m bench.check_regression
+
   web:
     runs-on: ubuntu-latest
     defaults:

@@ -78,6 +78,22 @@ handler verifies the Stripe signature, records each event id in
 state implied by the event type. A replayed event is detected by its id and is
 not applied twice, so duplicate deliveries do not double-apply a transition.
 
+## Benchmark
+
+`backend/bench/bench_notes_list.py` seeds two tenants with 2000 notes each and
+times 200 authenticated requests to the tenant-scoped list endpoint. On a local
+run it reports a median of about 16.7 ms and a p95 of about 37.7 ms; the exact
+numbers depend on the machine. The `bench-regress` CI job runs a reference pass
+and a current pass on the same runner and fails if the current median exceeds
+the reference by more than 30 percent, which catches a structural regression in
+the hot path.
+
+```bash
+cd backend
+python -m bench.bench_notes_list --notes 2000 --iterations 200
+python -m bench.check_regression
+```
+
 ## Configuration
 
 All configuration is read from environment variables; see `.env.example`. No
