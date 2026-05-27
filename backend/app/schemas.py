@@ -29,6 +29,11 @@ class NoteCreate(BaseModel):
     body: str = Field(default="", max_length=4000)
 
 
+class NoteUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    body: str | None = Field(default=None, max_length=4000)
+
+
 class NoteResponse(BaseModel):
     id: int
     title: str

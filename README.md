@@ -63,12 +63,20 @@ npm run test
 ## Tenant isolation
 
 Routes never receive a raw database session. They receive a `TenantScope`
-bound to the caller's tenant id (derived from the verified token). Reads go
-through `scope.query(Model)`, which adds the tenant filter; single-row fetches
-go through `scope.get_owned(Model, id)`, which returns the row only if it
-belongs to the caller's tenant; writes go through `scope.add`, which stamps the
-tenant id. Tests assert that a user from one tenant cannot read or mutate
-another tenant's rows for every resource.
+bound to the caller's tenant id (derived from the verified token):
+
+- `scope.query(Model)` adds the tenant filter to the select.
+- `scope.require_owned(Model, id)` returns a row only if it belongs to the
+  caller's tenant; a cross-tenant id reads as a missing row (404).
+- `scope.add(obj)` stamps the tenant id and rejects an object carrying another.
+- `scope.save(obj)` re-checks ownership before committing a mutation, so a write
+  can never escape the caller's tenant.
+
+Each method also asserts the model carries a `tenant_id` column, so a
+non-scoped model cannot be passed in by mistake. Tests drive every note
+operation (read, update, delete, summarize) across a tenant boundary and assert
+the API rejects the cross-tenant attempt, so isolation is proven at the API
+rather than assumed by convention.
 
 ## Billing
 

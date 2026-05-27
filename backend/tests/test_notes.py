@@ -14,6 +14,24 @@ def test_create_and_list_note(client: TestClient) -> None:
     assert [n["title"] for n in listing.json()] == ["First"]
 
 
+def test_update_and_delete_note(client: TestClient) -> None:
+    token = register(client, "a@acme.example", "Acme")
+    note = client.post(
+        "/notes", json={"title": "Draft", "body": "old"}, headers=auth_header(token)
+    ).json()
+
+    updated = client.patch(
+        f"/notes/{note['id']}", json={"title": "Final", "body": "new"}, headers=auth_header(token)
+    )
+    assert updated.status_code == 200
+    assert updated.json()["title"] == "Final"
+    assert updated.json()["body"] == "new"
+
+    deleted = client.delete(f"/notes/{note['id']}", headers=auth_header(token))
+    assert deleted.status_code == 204
+    assert client.get("/notes", headers=auth_header(token)).json() == []
+
+
 def test_summarize_uses_fake_provider(client: TestClient) -> None:
     token = register(client, "a@acme.example", "Acme")
     note = client.post(

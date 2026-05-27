@@ -58,12 +58,24 @@ def get_current_user(
     return user
 
 
+_NOT_FOUND = HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+
 class TenantScope:
     """A tenant-bound view over the database session.
 
-    Routes receive a ``TenantScope`` instead of a raw session. All reads and
-    writes pass through here, which guarantees the tenant filter is applied and
-    that a row fetched by id belongs to the caller's tenant.
+    Routes receive a ``TenantScope`` instead of a raw session. Every read and
+    write passes through here, so tenant isolation is enforced in one place
+    rather than depending on each route to remember a ``WHERE tenant_id`` clause:
+
+    * ``query`` injects the tenant filter into the select.
+    * ``get_owned`` / ``require_owned`` return a row only if it belongs to the
+      caller's tenant; a cross-tenant id is indistinguishable from a missing row.
+    * ``add`` stamps the tenant id and rejects an object carrying another.
+    * ``save`` re-checks ownership before committing a mutation.
+
+    Each method asserts the model actually carries a ``tenant_id`` column, so a
+    non-scoped model cannot be passed in by mistake.
     """
 
     def __init__(self, db: Session, tenant_id: int) -> None:
@@ -74,20 +86,45 @@ class TenantScope:
     def session(self) -> Session:
         return self._db
 
+    @staticmethod
+    def _tenant_column(model: type[T]):  # type: ignore[no-untyped-def]
+        columns = sa_inspect(model).columns
+        if "tenant_id" not in columns:
+            raise ValueError(f"{model.__name__} is not tenant-scoped")
+        return columns["tenant_id"]
+
     def query(self, model: type[T]) -> list[T]:
-        column = sa_inspect(model).columns["tenant_id"]
+        column = self._tenant_column(model)
         return list(self._db.scalars(select(model).where(column == self.tenant_id)))
 
     def get_owned(self, model: type[T], obj_id: int) -> T | None:
+        self._tenant_column(model)
         obj = self._db.get(model, obj_id)
         if obj is None or getattr(obj, "tenant_id", None) != self.tenant_id:
             return None
         return obj
 
+    def require_owned(self, model: type[T], obj_id: int) -> T:
+        obj = self.get_owned(model, obj_id)
+        if obj is None:
+            raise _NOT_FOUND
+        return obj
+
     def add(self, obj: T) -> T:
+        self._tenant_column(type(obj))
         if getattr(obj, "tenant_id", None) not in (None, self.tenant_id):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tenant mismatch")
         obj.tenant_id = self.tenant_id  # type: ignore[attr-defined]
+        self._db.add(obj)
+        self._db.commit()
+        self._db.refresh(obj)
+        return obj
+
+    def save(self, obj: T) -> T:
+        # Ownership is re-checked at write time so a mutation can never escape
+        # the caller's tenant, even if the object was loaded out of band.
+        if getattr(obj, "tenant_id", None) != self.tenant_id:
+            raise _NOT_FOUND
         self._db.add(obj)
         self._db.commit()
         self._db.refresh(obj)

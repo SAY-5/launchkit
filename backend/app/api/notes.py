@@ -1,10 +1,10 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 
 from app.api.deps import TenantScope, get_scope
 from app.models import Note
-from app.schemas import NoteCreate, NoteResponse, SummarizeResponse
+from app.schemas import NoteCreate, NoteResponse, NoteUpdate, SummarizeResponse
 from app.services.provider import get_provider
 
 router = APIRouter(prefix="/notes", tags=["notes"])
@@ -24,19 +24,33 @@ def create_note(
 
 @router.get("/{note_id}", response_model=NoteResponse)
 def get_note(note_id: int, scope: Annotated[TenantScope, Depends(get_scope)]) -> Note:
-    note = scope.get_owned(Note, note_id)
-    if note is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Note not found")
-    return note
+    return scope.require_owned(Note, note_id)
+
+
+@router.patch("/{note_id}", response_model=NoteResponse)
+def update_note(
+    note_id: int, payload: NoteUpdate, scope: Annotated[TenantScope, Depends(get_scope)]
+) -> Note:
+    note = scope.require_owned(Note, note_id)
+    if payload.title is not None:
+        note.title = payload.title
+    if payload.body is not None:
+        note.body = payload.body
+    return scope.save(note)
+
+
+@router.delete("/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_note(note_id: int, scope: Annotated[TenantScope, Depends(get_scope)]) -> None:
+    note = scope.require_owned(Note, note_id)
+    scope.session.delete(note)
+    scope.session.commit()
 
 
 @router.post("/{note_id}/summarize", response_model=SummarizeResponse)
 def summarize_note(
     note_id: int, scope: Annotated[TenantScope, Depends(get_scope)]
 ) -> SummarizeResponse:
-    note = scope.get_owned(Note, note_id)
-    if note is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Note not found")
+    note = scope.require_owned(Note, note_id)
     note.summary = get_provider().summarize(note.body or note.title)
-    scope.session.commit()
-    return SummarizeResponse(id=note.id, summary=note.summary)
+    scope.save(note)
+    return SummarizeResponse(id=note.id, summary=note.summary or "")
