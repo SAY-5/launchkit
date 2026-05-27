@@ -47,7 +47,7 @@ python -m venv .venv && . .venv/bin/activate
 pip install -e ".[dev]"
 ruff check app tests
 mypy app
-pytest --cov=app --cov-fail-under=85
+pytest --cov=app --cov-fail-under=90
 ```
 
 ### Frontend tests

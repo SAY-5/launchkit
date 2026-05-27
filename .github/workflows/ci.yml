@@ -19,7 +19,7 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: ruff check app tests
       - run: mypy app
-      - run: pytest --cov=app --cov-fail-under=85
+      - run: pytest --cov=app --cov-fail-under=90
 
   web:
     runs-on: ubuntu-latest

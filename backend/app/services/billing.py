@@ -8,6 +8,8 @@ subscription state from the event type.
 
 from __future__ import annotations
 
+import json
+
 import stripe
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -41,7 +43,8 @@ def create_checkout_session(tenant: Tenant, success_url: str, cancel_url: str) -
 def verify_signature(payload: bytes, sig_header: str) -> dict:
     settings = get_settings()
     event = stripe.Webhook.construct_event(payload, sig_header, settings.stripe_webhook_secret)
-    return dict(event)
+    # Convert the Stripe object to a plain nested dict for downstream handling.
+    return json.loads(str(event))
 
 
 def _tenant_for_event(db: Session, event: dict) -> Tenant | None:
